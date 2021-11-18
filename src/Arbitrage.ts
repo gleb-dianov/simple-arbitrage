@@ -125,10 +125,10 @@ export class Arbitrage {
 
   // TODO: take more than 1
   async takeCrossedMarkets(
-      contractDeploymentTransaction: ethers.providers.TransactionRequest,
+      contractDeploymentTransaction: ethers.providers.TransactionRequest | null,
       bestCrossedMarkets: CrossedMarketDetails[],
       blockNumber: number,
-       minerRewardPercentage: number
+      minerRewardPercentage: number
     ): Promise<void> {
     for (const bestCrossedMarket of bestCrossedMarkets) {
       console.log(
@@ -191,7 +191,7 @@ export class Arbitrage {
       }
 
       // TODO: don't deploy the contract if it has already been deployed
-      const bundledTransactions = [
+      const bundledTransactions = contractDeploymentTransaction ? [
         {
           signer: this.executorWallet,
           transaction: contractDeploymentTransaction
@@ -200,7 +200,11 @@ export class Arbitrage {
           signer: this.executorWallet,
           transaction: transaction
         }
-      ];
+      ] : [{
+        signer: this.executorWallet,
+        transaction: transaction
+      }]
+
       console.log(bundledTransactions)
       const signedBundle = await this.flashbotsProvider.signBundle(bundledTransactions)
 

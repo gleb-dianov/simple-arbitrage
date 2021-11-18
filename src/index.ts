@@ -7,10 +7,10 @@ import { Arbitrage } from "./Arbitrage";
 import { get } from "https"
 import { getDefaultRelaySigningKey } from "./utils";
 import { getContractAddress } from '@ethersproject/address';
+import fs from 'fs';
 
 import buildExecutorContract from './buildExecutorContract';
 import { getEmitHelpers } from "typescript";
-
 
 
 const ETHEREUM_RPC_URL = process.env.ETHEREUM_RPC_URL || "http://127.0.0.1:8545"
@@ -34,7 +34,18 @@ const arbitrageSigningWallet = new Wallet(PRIVATE_KEY);
 
 // Initialization
 const bytecode = buildExecutorContract.evm.bytecode.object;
-const abi = buildExecutorContract.abi;
+
+let abi: ethers.ContractInterface;
+
+let contractExists: boolean;
+
+if(fs.existsSync('../contract-abi.json')) {
+  abi = require('../contract-abi.json')
+  contractExists = true
+} else {
+  abi = buildExecutorContract.abi
+  contractExists = false
+}
 
 const HEALTHCHECK_URL = process.env.HEALTHCHECK_URL || ""
 
@@ -54,9 +65,15 @@ async function main() {
 
   console.log('Attempting to deploy from account:', address)
 
-  const factory = new ethers.ContractFactory(abi, bytecode, arbitrageSigningWallet)
+  let contractDeploymentTransaction: ethers.providers.TransactionRequest | null
 
-  const contractDeploymentTransaction = factory.getDeployTransaction()
+  if(!contractExists) {
+    const factory = new ethers.ContractFactory(abi, bytecode, arbitrageSigningWallet)
+
+    contractDeploymentTransaction = factory.getDeployTransaction()
+  } else {
+    contractDeploymentTransaction = null
+  }
 
   console.log('Prepared deployment transaction')
 
@@ -67,7 +84,9 @@ async function main() {
     nonce: transactionCount
   })
 
-  console.log('Contract will deployed to this address: ', futureAddress);
+  if(!contractExists) {
+    console.log('Contract will deployed to this address: ', futureAddress)
+  }
 
   console.log("Searcher Wallet Address: " + await arbitrageSigningWallet.getAddress())
   console.log(
