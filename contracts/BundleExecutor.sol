@@ -1,5 +1,5 @@
 //SPDX-License-Identifier: UNLICENSED
-pragma solidity 0.6.12;
+pragma solidity 0.8.10;
 
 pragma experimental ABIEncoderV2;
 
@@ -41,7 +41,7 @@ contract FlashBotsMultiCall {
         _;
     }
 
-    constructor(address _executor) public payable {
+    constructor(address _executor) payable {
         owner = msg.sender;
         executor = _executor;
         if (msg.value > 0) {

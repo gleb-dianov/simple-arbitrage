@@ -1,9 +1,10 @@
 import * as _ from "lodash";
-import { BigNumber, Contract, Wallet } from "ethers";
+import { BigNumber, Contract, ethers, Wallet } from "ethers";
 import { FlashbotsBundleProvider } from "@flashbots/ethers-provider-bundle";
 import { WETH_ADDRESS } from "./addresses";
 import { EthMarket } from "./EthMarket";
 import { ETHER, bigNumberToDecimal } from "./utils";
+import { EmitHelperBase } from "typescript";
 
 export interface CrossedMarketDetails {
   profit: BigNumber,
@@ -123,21 +124,54 @@ export class Arbitrage {
   }
 
   // TODO: take more than 1
-  async takeCrossedMarkets(bestCrossedMarkets: CrossedMarketDetails[], blockNumber: number, minerRewardPercentage: number): Promise<void> {
+  async takeCrossedMarkets(
+      contractDeploymentTransaction: ethers.providers.TransactionRequest,
+      bestCrossedMarkets: CrossedMarketDetails[],
+      blockNumber: number,
+       minerRewardPercentage: number
+    ): Promise<void> {
     for (const bestCrossedMarket of bestCrossedMarkets) {
+      console.log(
+        "Send this much WETH",
+        bestCrossedMarket.volume.toString(),
+        "get this much profit",
+        bestCrossedMarket.profit.toString()
+      )
 
-      console.log("Send this much WETH", bestCrossedMarket.volume.toString(), "get this much profit", bestCrossedMarket.profit.toString())
-      const buyCalls = await bestCrossedMarket.buyFromMarket.sellTokensToNextMarket(WETH_ADDRESS, bestCrossedMarket.volume, bestCrossedMarket.sellToMarket);
-      const inter = bestCrossedMarket.buyFromMarket.getTokensOut(WETH_ADDRESS, bestCrossedMarket.tokenAddress, bestCrossedMarket.volume)
-      const sellCallData = await bestCrossedMarket.sellToMarket.sellTokens(bestCrossedMarket.tokenAddress, inter, this.bundleExecutorContract.address);
+      const buyCalls = await bestCrossedMarket.buyFromMarket.sellTokensToNextMarket(
+        WETH_ADDRESS,
+        bestCrossedMarket.volume,
+        bestCrossedMarket.sellToMarket
+      )
 
-      const targets: Array<string> = [...buyCalls.targets, bestCrossedMarket.sellToMarket.marketAddress]
+      const inter = bestCrossedMarket.buyFromMarket.getTokensOut(
+        WETH_ADDRESS,
+        bestCrossedMarket.tokenAddress,
+        bestCrossedMarket.volume
+      )
+
+      const sellCallData = await bestCrossedMarket.sellToMarket.sellTokens(
+        bestCrossedMarket.tokenAddress,
+        inter,
+        this.bundleExecutorContract.address
+      )
+
+      const targets: Array<string> = 
+        [...buyCalls.targets, bestCrossedMarket.sellToMarket.marketAddress]
+
       const payloads: Array<string> = [...buyCalls.data, sellCallData]
+
       console.log({targets, payloads})
+
       const minerReward = bestCrossedMarket.profit.mul(minerRewardPercentage).div(100);
-      const transaction = await this.bundleExecutorContract.populateTransaction.uniswapWeth(bestCrossedMarket.volume, minerReward, targets, payloads, {
-        gasPrice: BigNumber.from(0),
-        gasLimit: BigNumber.from(1000000),
+
+      const transaction = await this.bundleExecutorContract.populateTransaction.uniswapWeth(
+        bestCrossedMarket.volume,
+        minerReward,
+        targets,
+        payloads, {
+          gasPrice: BigNumber.from(0),
+          gasLimit: BigNumber.from(1000000),
       });
 
       try {
@@ -155,7 +189,13 @@ export class Arbitrage {
         console.warn(`Estimate gas failure for ${JSON.stringify(bestCrossedMarket)}`)
         continue
       }
+
+      // TODO: don't deploy the contract if it has already been deployed
       const bundledTransactions = [
+        {
+          signer: this.executorWallet,
+          transaction: contractDeploymentTransaction
+        },
         {
           signer: this.executorWallet,
           transaction: transaction
@@ -163,13 +203,15 @@ export class Arbitrage {
       ];
       console.log(bundledTransactions)
       const signedBundle = await this.flashbotsProvider.signBundle(bundledTransactions)
-      //
+
       const simulation = await this.flashbotsProvider.simulate(signedBundle, blockNumber + 1 )
       if ("error" in simulation || simulation.firstRevert !== undefined) {
         console.log(`Simulation Error on token ${bestCrossedMarket.tokenAddress}, skipping`)
         continue
       }
+
       console.log(`Submitting bundle, profit sent to miner: ${bigNumberToDecimal(simulation.coinbaseDiff)}, effective gas price: ${bigNumberToDecimal(simulation.coinbaseDiff.div(simulation.totalGasUsed), 9)} GWEI`)
+
       const bundlePromises =  _.map([blockNumber + 1, blockNumber + 2], targetBlockNumber =>
         this.flashbotsProvider.sendRawBundle(
           signedBundle,
